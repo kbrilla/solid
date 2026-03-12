@@ -6,7 +6,7 @@ export const $TRACK = Symbol("solid-track");
 export const $DEVCOMP = Symbol("solid-dev-component");
 export const DEV = undefined;
 
-export type Accessor<T> = () => T;
+export type Accessor<T> = stable () => T;
 export type Setter<T> = undefined extends T
   ? <U extends T>(value?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
   : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;

@@ -184,7 +184,7 @@ export function createRoot<T>(fn: RootFunction<T>, detachedOwner?: typeof Owner)
   }
 }
 
-export type Accessor<T> = () => T;
+export type Accessor<T> = stable () => T;
 
 export type Setter<in out T> = {
   <U extends T>(
