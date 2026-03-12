@@ -195,7 +195,7 @@ export type Setter<in out T> = {
   <U extends T>(value: Exclude<U, Function> | ((prev: T) => U)): U;
 };
 
-export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
+export type Signal<T> = [get: Accessor<T>, set: mutator Setter<T> invalidates get];
 
 export interface SignalOptions<T> extends MemoOptions<T> {
   internal?: boolean;

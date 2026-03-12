@@ -10,7 +10,7 @@ export type Accessor<T> = stable () => T;
 export type Setter<T> = undefined extends T
   ? <U extends T>(value?: (U extends Function ? never : U) | ((prev?: T) => U)) => U
   : <U extends T>(value: (U extends Function ? never : U) | ((prev: T) => U)) => U;
-export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
+export type Signal<T> = [get: Accessor<T>, set: mutator Setter<T> invalidates get];
 
 const ERROR = Symbol("error");
 export function castError(err: unknown): Error {

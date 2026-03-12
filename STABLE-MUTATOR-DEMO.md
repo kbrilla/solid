@@ -42,7 +42,7 @@ if (count() !== null) {
 
 ## What Was Changed
 
-Two lines were modified and one test file was added:
+Three lines were modified and one test file was added:
 
 ### 1. `packages/solid/src/reactive/signal.ts` (line 187)
 
@@ -58,17 +58,51 @@ Two lines were modified and one test file was added:
 + export type Accessor<T> = stable () => T;
 ```
 
-### 3. `packages/solid/test/signals.stable-mutator.type-tests.ts` (new file)
+### 3. `Signal<T>` tuple type (both files)
+
+```diff
+- export type Signal<T> = [get: Accessor<T>, set: Setter<T>];
++ export type Signal<T> = [get: Accessor<T>, set: mutator Setter<T> invalidates get];
+```
+
+This uses `mutator TypeRef invalidates <target>` to wrap `Setter<T>` with mutator 
+semantics. `invalidates get` targets the `get` tuple label — when the setter is called, 
+the compiler resets narrowing on the getter. The full `Setter<T>` callable interface 
+(with all 4 overloads) is preserved.
+
+### 4. `packages/solid/test/signals.stable-mutator.type-tests.ts` (new file)
 
 Eight narrowing test scenarios that type-check correctly with tsgo. See [Test Scenarios](#test-scenarios) below.
 
 ---
 
-## What Was NOT Changed (and Why)
+## `mutator` on Type References
 
-**`Signal<T>` and `Setter<T>` were not annotated** with `mutator` or `invalidates`.
+The `Signal<T>` tuple now uses `mutator Setter<T> invalidates get` — applying `mutator` 
+directly to the `Setter<T>` type reference rather than requiring inline function type syntax. 
+This is essential for SolidJS because `Setter<T>` is a complex overloaded callable interface 
+with 4 overload signatures — rewriting it inline would be impractical.
 
-SolidJS's `Setter<T>` is a complex overloaded callable interface:
+### Before (inline function type — impractical for complex interfaces):
+```ts
+type Signal<T> = [
+    get: stable () => T,
+    set: mutator (value: T) => void invalidates get  // only one signature — loses overloads
+];
+```
+
+### After (type reference — preserves full interface):
+```ts
+type Signal<T> = [
+    get: Accessor<T>,                           // Accessor<T> = stable () => T
+    set: mutator Setter<T> invalidates get      // full Setter<T> interface preserved
+];
+```
+
+The `mutator TypeRef invalidates <targets>` syntax wraps any callable type reference with 
+mutator/invalidates semantics while preserving the complete type identity, including all overloads.
+
+SolidJS's `Setter<T>` has 4 overloads:
 
 ```ts
 export type Setter<in out T> = {
@@ -79,7 +113,8 @@ export type Setter<in out T> = {
 };
 ```
 
-Inlining `mutator` syntax on these overloads caused type incompatibility errors. The `stable` annotation on `Accessor<T>` alone provides the core benefit: narrowed types are preserved across signal reads. The `mutator`/`invalidates` annotations would additionally allow the compiler to *reset* narrowing when a setter is called, but that's an incremental improvement — not a prerequisite for the narrowing preservation demonstrated here.
+All 4 overloads are preserved through the type reference — calling any of them invalidates 
+the `get` accessor's narrowing state.
 
 ---
 
