@@ -153,6 +153,150 @@ This is **correct behavior**. The `on()` function calls `deps()` (a stable `Acce
 
 ---
 
+## Store Patterns — Keyed Per-Property Narrowing
+
+### What SolidJS Stores Are
+
+SolidJS stores use proxy-based property access, not function calls:
+
+```ts
+const [store, setStore] = createStore({ user: "alice", count: 0 });
+
+store.user;                      // property access — no () call
+setStore("user", "bob");         // path-based setter
+```
+
+The API signature:
+
+```ts
+declare function createStore<T>(init: T): [get: Store<T>, set: SetStoreFunction<T>];
+```
+
+`Store<T>` is just `T` — an identity alias. At runtime it's a reactive proxy, but at the type level there's no wrapper. Reads are property accesses (`store.user`), and writes use a path-based setter (`setStore("user", "bob")`).
+
+### The Challenge: Property Access vs Function Calls
+
+The `stable`/`mutator`/`invalidates` modifiers attach to **functions**. SolidJS stores use **property access** — `store.user` is not a function call. This creates an impedance mismatch: the compiler can reason about the stability of `count()` (a function call), but not `store.user` (a property read).
+
+### Bridge Patterns That Work Today
+
+Two patterns bridge the gap between property-based stores and function-based stability:
+
+#### 1. Derived Memos
+
+Wrap a store property read in `createMemo` to produce a `stable` accessor:
+
+```ts
+const userMemo: Accessor<string | undefined> = createMemo(() => store.user);
+
+if (userMemo() !== undefined) {
+    userMemo().toUpperCase();    // ✅ narrowed — Accessor is stable
+}
+```
+
+This works because `createMemo` returns `Accessor<T>`, which is `stable () => T`.
+
+#### 2. Keyed Accessor/Writer Interfaces
+
+A typed wrapper that exposes per-key stability via `stable[key]` and per-key invalidation via `invalidates get[key]`:
+
+```ts
+interface StoreAccessor<T> {
+    stable[key] get<K extends keyof T & string>(key: K): T[K];
+}
+
+interface StoreWriter<T> {
+    mutator set<K extends keyof T & string>(key: K, value: T[K]): void invalidates get[key];
+}
+```
+
+`stable[key]` means repeated calls to `get` with the **same key argument** are treated as stable — the compiler tracks stability per key, not per function. `invalidates get[key]` means calling `set("user", ...)` only invalidates `get("user")`, not `get("count")`.
+
+### What the Keyed Pattern Enables
+
+#### Narrowing preserved across same-key reads
+
+```ts
+declare const reader: StoreAccessor<AppState>;
+
+if (reader.get("user") !== undefined) {
+    const u: string = reader.get("user");     // ✅ narrowed — same key, stable
+}
+```
+
+#### Writing a DIFFERENT key does NOT invalidate narrowing
+
+```ts
+if (reader.get("user") !== undefined) {
+    writer.set("count", 99);                  // writes "count"
+    const u: string = reader.get("user");     // ✅ still narrowed — different key
+}
+```
+
+#### Writing the SAME key invalidates and provides post-call narrowing
+
+```ts
+if (reader.get("user") !== undefined) {
+    writer.set("user", "bob");                // writes "user" → invalidates get("user")
+    const u: string = reader.get("user");     // ✅ post-call narrowed to string via argument
+}
+```
+
+#### Exhaustive switch on keyed store fields
+
+```ts
+switch (statusStore.get("status")) {
+    case "loading":
+        const l: "loading" = statusStore.get("status");  // narrowed
+        break;
+    case "ready":
+        const r: "ready" = statusStore.get("status");    // narrowed
+        break;
+    case "error":
+        const e: "error" = statusStore.get("status");    // narrowed
+        break;
+    default:
+        const _exhaustive: never = statusStore.get("status"); // exhaustive
+}
+```
+
+#### Discriminated union narrowing via keyed access
+
+```ts
+if (reader.get("entry").kind === "text") {
+    reader.get("entry").content;              // ✅ narrowed — .content accessible
+}
+```
+
+### Test File
+
+All store patterns are tested in `packages/solid/test/stores.stable-mutator.type-tests.ts` — 8 scenarios:
+
+| # | Scenario | What It Tests |
+|---|----------|---------------|
+| 1 | **Derived memo from store** | `createMemo(() => store.user)` produces stable accessor |
+| 2 | **Keyed accessor narrowing** | `get("user")` stays narrowed across repeated reads |
+| 3 | **createTypedStore** | Combined `[read, write]` with per-key tracking |
+| 4 | **Nested store access** | Keyed reads of arrays/objects stay narrowed |
+| 5 | **produce as mutator** | Whole-state mutator function pattern |
+| 6 | **Exhaustive switch** | `switch (store.get("status"))` exhaustiveness check |
+| 7 | **Independent stores** | Writing to one store's key doesn't affect another store |
+| 8 | **Discriminated union** | `.kind` narrowing on keyed access with invalidation |
+
+### Future: Stable Properties (Potential Extension)
+
+A future extension could add `stable` to **property types** directly:
+
+```ts
+interface Store<T> {
+    stable readonly [K in keyof T]: T[K];
+}
+```
+
+This would allow `store.user` property access to preserve narrowing without function wrappers — the proxy-based read would be treated as identity-stable by the compiler. This requires extending `stable` from function signatures to property types, which is a larger language change but would close the impedance mismatch entirely for proxy-based reactive state.
+
+---
+
 ## Building tsgo From Source
 
 To build the TypeScript-Go compiler yourself from the companion PR:
